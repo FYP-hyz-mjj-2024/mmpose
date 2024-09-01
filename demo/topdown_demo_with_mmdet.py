@@ -163,18 +163,27 @@ def __MyNamespaceGenerator() -> argparse.Namespace:
     """
 
     # return namespaceGenerator.__image_demo()
-    return namespaceGenerator.__demo("webcam")
+    # return namespaceGenerator.__demo("webcam")
+    return namespaceGenerator.__vedio_demo()
 
 
-def get_available_types():
-    return ['webcam', 'virtual_cam', 'video']
+def get_realtime_types():
+    """
+    Types of input that doesn't come from a static source. Instead, comes from a stream source.
+    Which means the next frame is unpredictable to the machine.
+
+    Current ones are "webcam" and "virtual_cam", which indicates web cameras and virtual cameras.
+    Returns: A list of realtime_types.
+
+    """
+    return ['webcam', 'virtual_cam']
 
 
 def get_input_type(args):
     if not args.input:
         return ValueError('Need to specify input type in argument list.')
 
-    available_types = get_available_types()
+    available_types = get_realtime_types()
 
     if args.input in available_types:
         return args.input
@@ -192,16 +201,19 @@ def main():
 
     args = __MyNamespaceGenerator()
 
+    # Debug Section
     assert args.show or (args.output_root != '')
     assert args.input != ''
     assert args.det_config is not None
     assert args.det_checkpoint is not None
 
+    """
+    Output section.
+    """
     output_file = None
     if args.output_root:
         mmengine.mkdir_or_exist(args.output_root)
-        output_file = os.path.join(args.output_root,
-                                   os.path.basename(args.input))
+        output_file = os.path.join(args.output_root, os.path.basename(args.input))
         if args.input == 'webcam':
             output_file += '.mp4'
 
@@ -210,9 +222,10 @@ def main():
         args.pred_save_path = f'{args.output_root}/results_' \
             f'{os.path.splitext(os.path.basename(args.input))[0]}.json'
 
-    # build detector
-    detector = init_detector(
-        args.det_config, args.det_checkpoint, device=args.device)
+    """
+    Build detector
+    """
+    detector = init_detector(args.det_config, args.det_checkpoint, device=args.device)
     detector.cfg = adapt_mmdet_pipeline(detector.cfg)
 
     # build pose estimator
@@ -221,9 +234,17 @@ def main():
         args.pose_checkpoint,
         device=args.device,
         cfg_options=dict(
-            model=dict(test_cfg=dict(output_heatmaps=args.draw_heatmap))))
+            model=dict(
+                test_cfg=dict(
+                    output_heatmaps=args.draw_heatmap
+                )
+            )
+        )
+    )
 
-    # build visualizer
+    """
+    Build Visualizer
+    """
     pose_estimator.cfg.visualizer.radius = args.radius
     pose_estimator.cfg.visualizer.alpha = args.alpha
     pose_estimator.cfg.visualizer.line_width = args.thickness
@@ -234,14 +255,10 @@ def main():
     visualizer.set_dataset_meta(
         pose_estimator.dataset_meta, skeleton_style=args.skeleton_style)
 
-    # if args.input == 'webcam':
-    #     input_type = 'webcam'
-    # elif args.input == 'virtual_cam':
-    #     input_type = 'virtual_cam'
-    # else:
-    #     input_type = mimetypes.guess_type(args.input)[0].split('/')[0]
-
-    available_types = get_available_types()
+    """
+    Image Processing
+    """
+    realtime_types = get_realtime_types()
     input_type = get_input_type(args)
 
     if input_type == 'image':
@@ -263,14 +280,9 @@ def main():
             img_vis = visualizer.get_image()
             mmcv.imwrite(mmcv.rgb2bgr(img_vis), output_file)
 
-    elif input_type in available_types:
+    elif input_type in realtime_types + ['video']:
 
-        if args.input == 'webcam':
-            cap = cv2.VideoCapture(0)
-        elif args.input == 'virtual_cam':
-            cap = cv2.VideoCapture(1)
-        else:
-            cap = cv2.VideoCapture(args.input)
+        cap = cv2.VideoCapture(realtime_types.index(args.input) if args.input in realtime_types else args.input)
 
         video_writer = None
         pred_instances_list = []
@@ -280,22 +292,15 @@ def main():
             success, frame = cap.read()
             frame_idx += 1
 
-            if not success:
+            if (not success) or (args.show and cv2.waitKey(5) & 0xFF == 27):
                 break
 
             # topdown pose estimation
-            pred_instances = process_one_image(args, frame, detector,
-                                               pose_estimator, visualizer,
-                                               0.001)
-
-            print(split_instances(pred_instances))
+            pred_instances = process_one_image(args, frame, detector, pose_estimator, visualizer, 0.001)
 
             if args.save_predictions:
                 # save prediction results
-                pred_instances_list.append(
-                    dict(
-                        frame_id=frame_idx,
-                        instances=split_instances(pred_instances)))
+                pred_instances_list.append(dict(frame_id=frame_idx, instances=split_instances(pred_instances)))
 
             # output videos
             if output_file:
@@ -313,12 +318,7 @@ def main():
 
                 video_writer.write(mmcv.rgb2bgr(frame_vis))
 
-            if args.show:
-                # press ESC to exit
-                if cv2.waitKey(5) & 0xFF == 27:
-                    break
-
-                time.sleep(args.show_interval)
+            time.sleep(args.show_interval)
 
         if video_writer:
             video_writer.release()

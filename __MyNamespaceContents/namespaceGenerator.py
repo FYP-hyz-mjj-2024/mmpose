@@ -10,7 +10,7 @@ def load_default_args():
     args.det_cat_id = 0
     args.det_checkpoint = 'https://download.openmmlab.com/mmpose/v1/projects/rtmpose/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.pth'
     args.det_config = 'mmdetection_cfg/rtmdet_m_640-8xb32_coco-person.py'
-    args.device = 'cuda'
+    args.device = 'cpu'
     args.draw_bbox = False
     args.draw_heatmap = False
     args.input = input
