@@ -72,6 +72,7 @@ def process_one_image(args,
     # if there is no instance detected, return None
     return data_samples.get('pred_instances', None)
 
+
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument('det_config', help='Config file for detection')
@@ -156,15 +157,34 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+
 def __MyNamespaceGenerator() -> argparse.Namespace:
     """For Pycharm debug without using bash
     """
 
     # return namespaceGenerator.__image_demo()
-    return namespaceGenerator.__vedio_demo()
-def main():
-    """Visualize the demo images.
+    return namespaceGenerator.__demo("webcam")
 
+
+def get_available_types():
+    return ['webcam', 'virtual_cam', 'video']
+
+
+def get_input_type(args):
+    if not args.input:
+        return ValueError('Need to specify input type in argument list.')
+
+    available_types = get_available_types()
+
+    if args.input in available_types:
+        return args.input
+    else:
+        return mimetypes.guess_type(args.input)[0].split('/')[0]
+
+
+def main():
+    """
+    Visualize the demo images.
     Using mmdet to detect the human.
     """
     # args = parse_args()
@@ -208,21 +228,33 @@ def main():
     pose_estimator.cfg.visualizer.alpha = args.alpha
     pose_estimator.cfg.visualizer.line_width = args.thickness
     visualizer = VISUALIZERS.build(pose_estimator.cfg.visualizer)
+
     # the dataset_meta is loaded from the checkpoint and
     # then pass to the model in init_pose_estimator
     visualizer.set_dataset_meta(
         pose_estimator.dataset_meta, skeleton_style=args.skeleton_style)
 
-    if args.input == 'webcam':
-        input_type = 'webcam'
-    else:
-        input_type = mimetypes.guess_type(args.input)[0].split('/')[0]
+    # if args.input == 'webcam':
+    #     input_type = 'webcam'
+    # elif args.input == 'virtual_cam':
+    #     input_type = 'virtual_cam'
+    # else:
+    #     input_type = mimetypes.guess_type(args.input)[0].split('/')[0]
+
+    available_types = get_available_types()
+    input_type = get_input_type(args)
 
     if input_type == 'image':
 
         # inference
         pred_instances = process_one_image(args, args.input, detector,
                                            pose_estimator, visualizer)
+
+        for idx, instance in enumerate(split_instances(pred_instances)):
+            print(f"\n{idx}.\nkeypoints:\n")
+            for keypoint in instance['keypoints']:
+                print(f"\t{keypoint}")
+            print(f"bbox:\n{instance['bbox']}\nscore:\n{instance['bbox_score']}\n")
 
         if args.save_predictions:
             pred_instances_list = split_instances(pred_instances)
@@ -231,10 +263,12 @@ def main():
             img_vis = visualizer.get_image()
             mmcv.imwrite(mmcv.rgb2bgr(img_vis), output_file)
 
-    elif input_type in ['webcam', 'video']:
+    elif input_type in available_types:
 
         if args.input == 'webcam':
             cap = cv2.VideoCapture(0)
+        elif args.input == 'virtual_cam':
+            cap = cv2.VideoCapture(1)
         else:
             cap = cv2.VideoCapture(args.input)
 
@@ -253,6 +287,8 @@ def main():
             pred_instances = process_one_image(args, frame, detector,
                                                pose_estimator, visualizer,
                                                0.001)
+
+            print(split_instances(pred_instances))
 
             if args.save_predictions:
                 # save prediction results
@@ -289,11 +325,7 @@ def main():
 
         cap.release()
 
-    else:
-        args.save_predictions = False
-        raise ValueError(
-            f'file {os.path.basename(args.input)} has invalid format.')
-
+    # Save Predictions
     if args.save_predictions:
         with open(args.pred_save_path, 'w') as f:
             json.dump(
@@ -304,6 +336,7 @@ def main():
                 indent='\t')
         print(f'predictions have been saved at {args.pred_save_path}')
 
+    # Output File
     if output_file:
         input_type = input_type.replace('webcam', 'video')
         print_log(
